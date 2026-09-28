@@ -1,7 +1,123 @@
 openapi: 3.0.3
-
 info:
-  title: PassDelivery API
-  version: 1.0.0
+  title: Pass — Core API
+  description: >
+    API сервиса доставки еды Pass. Обслуживает клиентов, владельцев ресторанов
+    и курьеров. Аутентификация — Bearer JWT, выдаётся при регистрации и логине.
+  version: "0.1.0"
+servers:
+  - url: http://localhost:5050
+    description: Локальная разработка
 
-paths: {}
+tags:
+  - name: Auth
+    description: Регистрация и вход
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ---------- AUTH ----------
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Регистрация пользователя
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name, role]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                name: { type: string }
+                phone: { type: string }
+                role:
+                  type: string
+                  enum: [customer, restaurant_owner, courier]
+      responses:
+        "201":
+          description: Пользователь создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+        "409":
+          description: Email уже занят
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Вход пользователя
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Успешный вход
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401":
+          description: Неверный email или пароль
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+
+  responses:
+    ValidationError:
+      description: Ошибка валидации входных данных
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Не авторизован
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Недостаточно прав
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Не найдено
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string, example: "validation_error" }
+        message: { type: string, example: "email is required" }
+
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string }
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        phone: { type: string }
+        role:
+          type: string
+          enum: [customer, restaurant_owner, courier, admin]
+        created_at: { type: string, format: date-time }
