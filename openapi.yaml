@@ -77,7 +77,91 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+# ---------- USERS ----------
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Текущий пользователь
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [Users]
+      summary: Обновить профиль
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                name: { type: string }
+                phone: { type: string }
+      responses:
+        "200":
+          description: Обновлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /users/me/addresses:
+    get:
+      tags: [Users]
+      summary: Список адресов пользователя
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Address" }
+    post:
+      tags: [Users]
+      summary: Добавить адрес
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddressInput" }
+      responses:
+        "201":
+          description: Адрес создан
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Address" }
+        "400": { $ref: "#/components/responses/ValidationError" }
+
+  /users/me/addresses/{addressId}:
+    parameters:
+      - $ref: "#/components/parameters/AddressId"
+    patch:
+      tags: [Users]
+      summary: Изменить адрес
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddressInput" }
+      responses:
+        "200":
+          description: Обновлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Address" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      tags: [Users]
+      summary: Удалить адрес
+      responses:
+        "204": { description: Удалено }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   responses:
     ValidationError:
@@ -121,3 +205,23 @@ paths:
           type: string
           enum: [customer, restaurant_owner, courier, admin]
         created_at: { type: string, format: date-time }
+
+    AddressInput:
+      type: object
+      required: [city, street, house]
+      properties:
+        city: { type: string }
+        street: { type: string }
+        house: { type: string }
+        apartment: { type: string }
+        comment: { type: string }
+        is_default: { type: boolean }
+
+    Address:
+      allOf:
+        - { $ref: "#/components/schemas/AddressInput" }
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            user_id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
