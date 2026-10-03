@@ -23,8 +23,8 @@
 | Docker Compose (бек + Postgres) | Готово | Поднимается локально |
 | Restaurants, Dishes, Categories | Не начато | Следующий блок |
 | Cart, Orders, Couriers, Deliveries, Reviews | Не начато | После чекпоинта 1 |
-| business-requirements.md | Не начато | Ответственный — Точилкин Пётр (бизнес-аналитик) |
-| Frontend «Hello World» | Уточнить у команды | Ответственный — Орлов Виктор |
+| requirements.md | Готово | Ответственный — Точилкин Пётр (бизнес-аналитик) |
+| Frontend «Hello World» | Готово | Ответственный — Орлов Виктор |
 
 ## План по дням до чекпоинта 1
 
