@@ -17,7 +17,7 @@
 |---|---|---|
 | GitHub Organization, репозитории, branch protection | Готово | Проверить, что весь код идёт через PR |
 | ERD-диаграмма (14 таблиц) | Готово | Лежит в pass-docs/erd.md |
-| OpenAPI-контракты (30 путей) | Готово | В SwaggerHub, лежит в pass-docs/openapi-core.yaml |
+| OpenAPI-контракты | В работе | В SwaggerHub, лежит в pass-docs/openapi-core.yaml |
 | Auth: регистрация, логин, JWT, bcrypt, middleware | Готово | Доменная сущность, репозиторий, сервис, хендлер отлажены и протестированы |
 | Users + Addresses | В работе | CRUD адресов почти готов, остались мелкие баги |
 | Docker Compose (бек + Postgres) | Готово | Поднимается локально |
