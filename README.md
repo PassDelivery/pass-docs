@@ -7,10 +7,10 @@
 
 | Документ | Описание |
 |---|---|
-| [`business-requirements.md`](./business-requirements.md) | Анализ задачи: цель проекта, роли пользователей, use-case'ы, бизнес-правила |
+| [`requirements.md`](./requirements.md) | Анализ задачи: цель проекта, роли пользователей, use-case'ы, бизнес-правила |
 | [`erd.md`](./erd.md) | ERD-диаграмма базы данных |
-| [`openapi-core.yaml`](./openapi-core.yaml) | OpenAPI-контракт REST API |
-| [Roadmap и график работ](https://claude.ai/code/artifact/cc5a514e-3789-4d14-94f4-f0a1462abc00) | План по этапам на все 3 лабораторные |
+| [`openapi-core.yaml`](./openapi.yaml) | OpenAPI-контракт REST API |
+| [Roadmap и график работ](./ROADMAP.md) | План по этапам на все 3 лабораторные |
 
 ## О проекте
 
@@ -21,13 +21,13 @@ PassDelivery — сервис заказа и доставки еды из ре�
 - courier — доставляет заказы
 - admin — модерация и администрирование
 
-Подробный разбор сценариев — в [business-requirements.md](./business-requirements.md).
+Подробный разбор сценариев — в [requirements.md](./requirements.md).
 
 ## Архитектура
 
 - Backend: Go, трёхслойная архитектура (handler → service → repository), PostgreSQL, Docker Compose, JWT-аутентификация
 - Frontend: см. репозиторий pass-frontend
-- Контракт между бекендом и фронтендом: [OpenAPI-спека](./openapi-core.yaml), также доступна в SwaggerHub
+- Контракт между бекендом и фронтендом: [OpenAPI-спека](./openapi.yaml), также доступна в SwaggerHub
 
 ## Репозитории организации
 
