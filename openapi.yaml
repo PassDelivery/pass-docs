@@ -1,0 +1,1449 @@
+openapi: 3.0.3
+info:
+  title: PassDelivery API
+  version: 1.0.0
+  description: |
+    REST API сервиса доставки еды PassDelivery.
+
+    **Роли:** `customer` — покупатель, `restaurant_owner` — владелец ресторана, `courier` — курьер.
+
+    **Авторизация:** токен из `/auth/login` или `/auth/register` передаётся в заголовке
+    `Authorization: Bearer <token>`. Ручки без замка открыты для всех.
+
+    **Деньги** везде в копейках (`*_kopecks`, целое число). 540 ₽ = `54000`.
+
+    **PATCH** — частичное обновление: передаются только поля, которые меняются.
+    Поле, переданное как `null`, очищается (если оно необязательное).
+
+    **Ошибки** приходят в одном формате (`Error`):
+    `400` — неверные данные, `401` — нет или просрочен токен, `403` — роли нельзя в эту ручку,
+    `404` — не найдено (или чужое), `409` — конфликт состояния (например, заказ уже принят), `500` — ошибка сервера.
+
+    **Фото** (`photo_url`, `avatar_url`) — путь вида `/uploads/dishes/<имя>.jpg` относительно базового адреса API:
+    полный адрес картинки = `<server>` + `photo_url`.
+servers:
+  - url: https://passdelivery.ru/api/v1
+    description: Продакшен (nginx проксирует /api/ на бэкенд)
+  - url: http://localhost:5050/api/v1
+    description: Локальный запуск
+
+tags:
+  - name: Авторизация
+    description: Регистрация и вход, выдают JWT
+  - name: Профиль
+    description: Данные и фото текущего пользователя
+  - name: Адреса
+    description: Только для покупателя и владельца
+  - name: Каталог
+    description: Публичные ручки, токен не нужен
+  - name: Отзывы
+    description: Отзывы о ресторанах и оценка курьера
+  - name: Корзина
+    description: Только для покупателя. В корзине могут быть блюда только одного ресторана
+  - name: Заказы покупателя
+    description: Оформление, отслеживание и отмена заказа
+  - name: Кабинет ресторана
+    description: Только для владельца и только для своих ресторанов (чужой ресторан → 404)
+  - name: Заказы ресторана
+    description: Приём и приготовление заказов владельцем
+  - name: Курьер
+    description: Линия, предложения доставок, история и рейтинг
+  - name: Уведомления
+    description: События по заказам для покупателя, владельца и курьера
+  - name: Файлы
+    description: Отдача загруженных фото
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ---------------- Авторизация ----------------
+  /auth/register:
+    post:
+      operationId: registerUser
+      tags: [Авторизация]
+      summary: Регистрация
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Пользователь создан, сразу выдан токен
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Email уже занят
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/login:
+    post:
+      operationId: loginUser
+      tags: [Авторизация]
+      summary: Вход
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------- Профиль ----------------
+  /users/me:
+    get:
+      operationId: getMe
+      tags: [Профиль]
+      summary: Текущий пользователь
+      description: 'Роли: customer, restaurant_owner, courier'
+      responses:
+        '200':
+          description: Профиль
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      operationId: patchMe
+      tags: [Профиль]
+      summary: Изменить имя, email или телефон
+      description: 'Роли: customer, restaurant_owner, courier'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserPatch' }
+      responses:
+        '200':
+          description: Обновлённый профиль
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Email уже занят
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /users/me/avatar:
+    post:
+      operationId: uploadAvatar
+      tags: [Профиль]
+      summary: Загрузить фото профиля
+      description: |
+        Роли: customer, restaurant_owner, courier.
+        Старое фото удаляется. Ограничения — как у всех фото (см. `PhotoUpload`).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/PhotoUpload' }
+      responses:
+        '200':
+          description: Профиль с новым `avatar_url`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ---------------- Адреса ----------------
+  /users/me/addresses:
+    get:
+      operationId: getAddresses
+      tags: [Адреса]
+      summary: Мои адреса
+      responses:
+        '200':
+          description: Список адресов
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Address' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createAddress
+      tags: [Адреса]
+      summary: Добавить адрес
+      description: |
+        Если `is_default: true`, прежний адрес по умолчанию перестаёт им быть.
+        Первый адрес пользователя всегда становится адресом по умолчанию.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressCreate' }
+      responses:
+        '201':
+          description: Адрес создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Address' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /users/me/addresses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      operationId: patchAddress
+      tags: [Адреса]
+      summary: Изменить адрес
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressPatch' }
+      responses:
+        '200':
+          description: Обновлённый адрес
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Address' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteAddress
+      tags: [Адреса]
+      summary: Удалить адрес
+      responses:
+        '204': { description: Удалён }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------- Каталог ----------------
+  /restaurants:
+    get:
+      operationId: getRestaurants
+      tags: [Каталог]
+      summary: Открытые рестораны
+      description: Возвращаются только рестораны с `is_open = true`.
+      security: []
+      responses:
+        '200':
+          description: Список ресторанов
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RestaurantCard' }
+
+  /restaurants/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      operationId: getRestaurant
+      tags: [Каталог]
+      summary: Ресторан
+      description: Отдаётся и закрытый ресторан (`is_open = false`) — чтобы показать «Сейчас закрыт».
+      security: []
+      responses:
+        '200':
+          description: Ресторан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RestaurantCard' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /restaurants/{id}/menu:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      operationId: getMenu
+      tags: [Каталог]
+      summary: Меню ресторана
+      description: Категории по `sort_order`, внутри — только блюда в продаже (`is_available = true`).
+      security: []
+      responses:
+        '200':
+          description: Меню
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Menu' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------- Отзывы ----------------
+  /restaurants/{id}/reviews:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      operationId: getRestaurantReviews
+      tags: [Отзывы]
+      summary: Отзывы о ресторане
+      description: Сначала новые. Оценка курьера в публичном списке не отдаётся.
+      security: []
+      responses:
+        '200':
+          description: Список отзывов
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Review' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /orders/{id}/review:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      operationId: createReview
+      tags: [Отзывы]
+      summary: Оставить отзыв о своём заказе
+      description: |
+        Роль: customer. Только на свой заказ в статусе `delivered`, один отзыв на заказ.
+        `courier_rating` — необязательная оценка курьера, из неё считается рейтинг курьера.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewCreate' }
+      responses:
+        '201':
+          description: Отзыв создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Review' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Заказ ещё не доставлен или отзыв уже есть
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ---------------- Корзина ----------------
+  /cart:
+    get:
+      operationId: getCart
+      tags: [Корзина]
+      summary: Моя корзина
+      responses:
+        '200':
+          description: 'Корзина (пустая — `items: []`, `restaurant_id: null`)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      operationId: clearCart
+      tags: [Корзина]
+      summary: Очистить корзину
+      responses:
+        '204': { description: Корзина очищена }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /cart/items:
+    post:
+      operationId: addCartItem
+      tags: [Корзина]
+      summary: Добавить блюдо
+      description: Если блюдо уже в корзине — количество увеличивается.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CartItemAdd' }
+      responses:
+        '200':
+          description: Корзина после добавления
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Блюдо не в продаже или в корзине блюда из другого ресторана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /cart/items/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      operationId: patchCartItem
+      tags: [Корзина]
+      summary: Изменить количество
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CartItemPatch' }
+      responses:
+        '200':
+          description: Корзина после изменения
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteCartItem
+      tags: [Корзина]
+      summary: Убрать блюдо
+      responses:
+        '200':
+          description: Корзина после удаления
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cart' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------- Заказы покупателя ----------------
+  /orders:
+    get:
+      operationId: getOrders
+      tags: [Заказы покупателя]
+      summary: Мои заказы
+      description: Сначала новые.
+      responses:
+        '200':
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Order' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createOrder
+      tags: [Заказы покупателя]
+      summary: Оформить заказ из корзины
+      description: |
+        Создаёт заказ со статусом `new` из текущей корзины и очищает её.
+        Владелец ресторана получает уведомление.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderCreate' }
+      responses:
+        '201':
+          description: Заказ создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Адрес не найден
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: Корзина пуста, ресторан закрыт или блюдо закончилось
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      operationId: getOrder
+      tags: [Заказы покупателя]
+      summary: Мой заказ
+      responses:
+        '200':
+          description: Заказ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /orders/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      operationId: cancelOrder
+      tags: [Заказы покупателя]
+      summary: Отменить заказ
+      description: Можно только пока заказ в статусе `new`. Владелец получает уведомление.
+      responses:
+        '200':
+          description: Заказ со статусом `cancelled`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Ресторан уже принял заказ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /orders/{id}/status-history:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      operationId: getOrderStatusHistory
+      tags: [Заказы покупателя]
+      summary: История статусов заказа
+      responses:
+        '200':
+          description: Смены статусов по времени
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/StatusChange' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------- Кабинет ресторана ----------------
+  /internal/restaurants:
+    get:
+      operationId: getOwnerRestaurants
+      tags: [Кабинет ресторана]
+      summary: Мои рестораны
+      description: Все рестораны владельца, включая закрытые, по дате создания.
+      responses:
+        '200':
+          description: Список ресторанов
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/OwnerRestaurant' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createRestaurant
+      tags: [Кабинет ресторана]
+      summary: Создать ресторан
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RestaurantCreate' }
+      responses:
+        '201':
+          description: Ресторан создан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerRestaurant' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+
+  /internal/restaurants/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      operationId: patchRestaurant
+      tags: [Кабинет ресторана]
+      summary: Изменить ресторан, открыть или закрыть
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RestaurantPatch' }
+      responses:
+        '200':
+          description: Обновлённый ресторан
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerRestaurant' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/restaurants/{id}/photo:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      operationId: uploadRestaurantPhoto
+      tags: [Кабинет ресторана]
+      summary: Загрузить фото ресторана
+      description: Старое фото удаляется.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/PhotoUpload' }
+      responses:
+        '200':
+          description: Ресторан с новым `photo_url`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnerRestaurant' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/restaurants/{id}/categories:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      operationId: getCategories
+      tags: [Кабинет ресторана]
+      summary: Категории меню
+      description: По `sort_order`, затем по названию.
+      responses:
+        '200':
+          description: Список категорий
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Category' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: addCategory
+      tags: [Кабинет ресторана]
+      summary: Добавить категорию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CategoryCreate' }
+      responses:
+        '201':
+          description: Категория создана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Category' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/restaurants/{id}/dishes:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      operationId: getDishes
+      tags: [Кабинет ресторана]
+      summary: Все блюда ресторана
+      description: Включая скрытые (`is_available = false`), по дате создания.
+      responses:
+        '200':
+          description: Список блюд
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Dish' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: addDish
+      tags: [Кабинет ресторана]
+      summary: Добавить блюдо
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DishCreate' }
+      responses:
+        '201':
+          description: Блюдо создано
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dish' }
+        '400':
+          description: Неверные данные или категория из другого ресторана
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/dishes/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      operationId: patchDish
+      tags: [Кабинет ресторана]
+      summary: Изменить блюдо
+      description: 'Через `is_available: true` блюдо возвращается в продажу.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DishPatch' }
+      responses:
+        '200':
+          description: Обновлённое блюдо
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dish' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Нельзя снять с продажи — блюдо есть в активных заказах
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      operationId: hideDish
+      tags: [Кабинет ресторана]
+      summary: Скрыть блюдо из меню
+      description: Блюдо не удаляется, а получает `is_available = false` (оно может быть в старых заказах).
+      responses:
+        '204': { description: Блюдо скрыто }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Блюдо есть в активных заказах
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /internal/dishes/{id}/photo:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      operationId: uploadDishPhoto
+      tags: [Кабинет ресторана]
+      summary: Загрузить фото блюда
+      description: Старое фото удаляется.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: '#/components/schemas/PhotoUpload' }
+      responses:
+        '200':
+          description: Блюдо с новым `photo_url`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Dish' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------- Заказы ресторана ----------------
+  /internal/restaurants/{id}/orders:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      operationId: getRestaurantOrders
+      tags: [Заказы ресторана]
+      summary: Заказы ресторана
+      description: Все заказы ресторана, сначала новые. В заказе есть имя и телефон покупателя.
+      responses:
+        '200':
+          description: Список заказов
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /internal/orders/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      operationId: changeOrderStatus
+      tags: [Заказы ресторана]
+      summary: Сменить статус заказа
+      description: |
+        Разрешённые переходы: `new → accepted | rejected`, `accepted → cooking`, `cooking → ready`.
+        Дальше статус двигает курьер. Покупатель получает уведомление о каждом шаге.
+        Курьеров начинают искать, как только заказ переходит в `cooking`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderStatusUpdate' }
+      responses:
+        '200':
+          description: Заказ с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Переход недопустим или статус уже изменился (например, покупатель отменил заказ)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ---------------- Курьер ----------------
+  /courier/status:
+    get:
+      operationId: getCourierStatus
+      tags: [Курьер]
+      summary: Мой статус
+      description: Новый курьер, ещё ни разу не выходивший на линию, — `offline`.
+      responses:
+        '200':
+          description: Статус курьера
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CourierStatus' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      operationId: setCourierStatus
+      tags: [Курьер]
+      summary: Выйти на линию или уйти с неё
+      description: '`busy` ставится автоматически, пока есть активная доставка.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CourierStatusUpdate' }
+      responses:
+        '200':
+          description: Новый статус
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CourierStatus' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Нельзя уйти с линии во время доставки
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /courier/deliveries:
+    get:
+      operationId: getDeliveries
+      tags: [Курьер]
+      summary: Предложения и текущая доставка
+      description: |
+        При каждом запросе бэкенд подбирает курьеру до 5 предложений из заказов в статусах `cooking` и `ready`.
+        Возвращаются доставки в статусах `offered`, `accepted`, `picked_up`.
+        Для предложений (`offered`) имя и телефон покупателя скрыты.
+      responses:
+        '200':
+          description: Список доставок
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Delivery' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /courier/deliveries/history:
+    get:
+      operationId: getDeliveriesHistory
+      tags: [Курьер]
+      summary: История доставок
+      description: Последние 100 выполненных доставок, сначала новые.
+      responses:
+        '200':
+          description: Список доставок со статусом `delivered`
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Delivery' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /courier/rating:
+    get:
+      operationId: getCourierRating
+      tags: [Курьер]
+      summary: Мой рейтинг
+      description: Среднее по `courier_rating` из отзывов на доставленные мной заказы.
+      responses:
+        '200':
+          description: Рейтинг
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CourierRating' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /courier/deliveries/{id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      operationId: acceptDelivery
+      tags: [Курьер]
+      summary: Принять предложение
+      description: Можно, пока заказ в `cooking` или `ready` и у курьера нет другой активной доставки.
+      responses:
+        '200':
+          description: Доставка со статусом `accepted`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Delivery' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Заказ уже забрал другой курьер, у курьера есть активная доставка или заказ недоступен
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /courier/deliveries/{id}/refuse:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      operationId: refuseDelivery
+      tags: [Курьер]
+      summary: Отказаться от предложения
+      responses:
+        '204': { description: Отказ принят }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Предложение уже не в статусе `offered`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /courier/deliveries/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      operationId: changeDeliveryStatus
+      tags: [Курьер]
+      summary: Забрал заказ / доставил
+      description: |
+        `accepted → picked_up` (только когда заказ `ready`, заказ становится `delivering`),
+        `picked_up → delivered` (заказ становится `delivered`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeliveryStatusUpdate' }
+      responses:
+        '200':
+          description: Доставка с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Delivery' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Переход недопустим или ресторан ещё готовит заказ
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ---------------- Уведомления ----------------
+  /notifications:
+    get:
+      operationId: getNotifications
+      tags: [Уведомления]
+      summary: Мои уведомления
+      description: 'Роли: customer, restaurant_owner, courier. Последние 50, сначала новые.'
+      responses:
+        '200':
+          description: Список уведомлений
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Notification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /notifications/{id}/read:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      operationId: readNotification
+      tags: [Уведомления]
+      summary: Отметить прочитанным
+      responses:
+        '200':
+          description: Уведомление с `is_read = true`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Notification' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ---------------- Файлы ----------------
+  /uploads/{kind}/{name}:
+    get:
+      operationId: getPhoto
+      tags: [Файлы]
+      summary: Картинка (фото ресторана, блюда или профиля)
+      description: Путь берётся из `photo_url` / `avatar_url`. Ответ кэшируется браузером навсегда — имя файла уникально.
+      security: []
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [restaurants, dishes, avatars] }
+        - name: name
+          in: path
+          required: true
+          schema: { type: string, example: 6457b690-58d7-4d94-9b58-77da444c609f.jpg }
+      responses:
+        '200':
+          description: Файл
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Неверные данные
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Нет токена, токен просрочен или неверный пароль
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Этой роли нельзя в эту ручку
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Не найдено (или принадлежит другому пользователю)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [message, error]
+      properties:
+        message: { type: string, description: Что делал сервер, example: add item to cart }
+        error: { type: string, description: Причина, example: 'cart contains dishes from another restaurant: conflict' }
+
+    Role:
+      type: string
+      enum: [customer, restaurant_owner, courier, admin]
+
+    Money:
+      type: integer
+      format: int64
+      description: Сумма в копейках
+      example: 54000
+
+    PhotoUrl:
+      type: string
+      nullable: true
+      description: Путь к картинке относительно API или `null`, если фото нет
+      example: /uploads/dishes/6457b690-58d7-4d94-9b58-77da444c609f.jpg
+
+    PhotoUpload:
+      type: object
+      required: [photo]
+      description: |
+        Файл в поле `photo`. Форматы — JPEG, PNG или WebP (проверяется по содержимому, не по расширению),
+        размер — до 5 МБ. Имя файла на сервере генерируется заново.
+      properties:
+        photo: { type: string, format: binary }
+
+    # ----- пользователи -----
+    RegisterRequest:
+      type: object
+      required: [email, password, name, role]
+      properties:
+        email: { type: string, format: email, example: anna@mail.ru }
+        password: { type: string, minLength: 6, example: secret12 }
+        name: { type: string, minLength: 2, example: Анна }
+        phone: { type: string, description: 'Формат E.164, начинается с +', example: '+79991234567' }
+        role: { $ref: '#/components/schemas/Role' }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 6 }
+
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string, description: JWT для заголовка Authorization }
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        phone: { type: string, nullable: true }
+        role: { $ref: '#/components/schemas/Role' }
+        created_at: { type: string, format: date-time }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        phone: { type: string, nullable: true }
+        role: { $ref: '#/components/schemas/Role' }
+        avatar_url: { $ref: '#/components/schemas/PhotoUrl' }
+        created_at: { type: string, format: date-time }
+
+    UserPatch:
+      type: object
+      description: Только изменённые поля
+      properties:
+        email: { type: string, format: email }
+        name: { type: string, minLength: 2 }
+        phone: { type: string, nullable: true, example: '+79991234567' }
+
+    # ----- адреса -----
+    Address:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        city: { type: string, example: Москва }
+        street: { type: string, example: Садовая }
+        house: { type: string, example: '7' }
+        apartment: { type: string, nullable: true, example: '12' }
+        comment: { type: string, nullable: true, example: Домофон 12К }
+        is_default: { type: boolean }
+        created_at: { type: string, format: date-time }
+
+    AddressCreate:
+      type: object
+      required: [city, street, house]
+      properties:
+        city: { type: string, minLength: 1 }
+        street: { type: string, minLength: 1 }
+        house: { type: string, minLength: 1 }
+        apartment: { type: string, minLength: 1 }
+        comment: { type: string, minLength: 1, maxLength: 50 }
+        is_default: { type: boolean, default: false }
+
+    AddressPatch:
+      type: object
+      description: Только изменённые поля, `null` не допускается
+      properties:
+        city: { type: string, minLength: 3 }
+        street: { type: string }
+        house: { type: string }
+        apartment: { type: string }
+        comment: { type: string, maxLength: 50 }
+        is_default: { type: boolean }
+
+    # ----- каталог -----
+    RestaurantCard:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: Casa Pasta }
+        description: { type: string, nullable: true }
+        address: { type: string, example: 'ул. Тверская, 18' }
+        phone: { type: string, nullable: true }
+        is_open: { type: boolean }
+        photo_url: { $ref: '#/components/schemas/PhotoUrl' }
+        created_at: { type: string, format: date-time }
+
+    Menu:
+      type: object
+      properties:
+        restaurant_id: { type: string, format: uuid }
+        categories:
+          type: array
+          items: { $ref: '#/components/schemas/MenuCategory' }
+
+    MenuCategory:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: Паста }
+        sort_order: { type: integer, nullable: true }
+        dishes:
+          type: array
+          items: { $ref: '#/components/schemas/MenuDish' }
+
+    MenuDish:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        category_id: { type: string, format: uuid }
+        name: { type: string, example: Карбонара }
+        description: { type: string, nullable: true }
+        price_kopecks: { $ref: '#/components/schemas/Money' }
+        cooking_time_minutes: { type: integer, nullable: true }
+        photo_url: { $ref: '#/components/schemas/PhotoUrl' }
+
+    # ----- отзывы -----
+    Review:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        order_id: { type: string, format: uuid }
+        restaurant_id: { type: string, format: uuid }
+        author_name: { type: string, description: Только имя автора, example: Анна }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        courier_rating: { type: integer, minimum: 1, maximum: 5, description: Есть только в ответе на создание отзыва }
+        body: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+
+    ReviewCreate:
+      type: object
+      required: [rating]
+      properties:
+        rating: { type: integer, minimum: 1, maximum: 5, description: Оценка еды и ресторана }
+        courier_rating: { type: integer, minimum: 1, maximum: 5, description: 'Оценка курьера, необязательно' }
+        body: { type: string, maxLength: 1000 }
+
+    # ----- корзина -----
+    Cart:
+      type: object
+      properties:
+        restaurant_id: { type: string, format: uuid, nullable: true }
+        restaurant_name: { type: string, nullable: true }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CartItem' }
+        total_kopecks: { $ref: '#/components/schemas/Money' }
+
+    CartItem:
+      type: object
+      properties:
+        id: { type: string, format: uuid, description: id позиции в корзине (не блюда) }
+        dish_id: { type: string, format: uuid }
+        name: { type: string }
+        price_kopecks: { $ref: '#/components/schemas/Money' }
+        quantity: { type: integer }
+        total_kopecks: { $ref: '#/components/schemas/Money' }
+        is_available: { type: boolean, description: '`false` — блюдо сняли с продажи, перед оформлением его нужно убрать' }
+        photo_url: { $ref: '#/components/schemas/PhotoUrl' }
+
+    CartItemAdd:
+      type: object
+      required: [dish_id, quantity]
+      properties:
+        dish_id: { type: string, format: uuid }
+        quantity: { type: integer, minimum: 1, maximum: 99 }
+
+    CartItemPatch:
+      type: object
+      required: [quantity]
+      properties:
+        quantity: { type: integer, minimum: 1, maximum: 99 }
+
+    # ----- заказы -----
+    OrderStatus:
+      type: string
+      enum: [new, accepted, cooking, ready, delivering, delivered, cancelled, rejected]
+      description: |
+        `new` — ждёт ресторан, `accepted` — принят, `cooking` — готовится, `ready` — готов,
+        `delivering` — у курьера, `delivered` — доставлен, `cancelled` — отменён покупателем,
+        `rejected` — отклонён рестораном
+
+    Order:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        user_id: { type: string, format: uuid }
+        restaurant_id: { type: string, format: uuid }
+        restaurant_name: { type: string, description: В ручках покупателя }
+        customer_name: { type: string, description: В ручках ресторана }
+        customer_phone: { type: string, nullable: true, description: В ручках ресторана }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        total_kopecks: { $ref: '#/components/schemas/Money' }
+        delivery_address: { type: string, description: Адрес строкой на момент оформления, example: 'Москва, Садовая, 7, кв. 12' }
+        comment: { type: string, nullable: true }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/OrderItem' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    OrderItem:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        dish_id: { type: string, format: uuid }
+        dish_name: { type: string, description: Название на момент заказа }
+        quantity: { type: integer }
+        price_at_order_time: { $ref: '#/components/schemas/Money' }
+
+    OrderCreate:
+      type: object
+      required: [address_id]
+      properties:
+        address_id: { type: string, format: uuid }
+        comment: { type: string, maxLength: 200 }
+
+    StatusChange:
+      type: object
+      properties:
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        changed_by: { type: string, format: uuid, description: Кто сменил статус }
+        changed_at: { type: string, format: date-time }
+
+    OrderStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [accepted, rejected, cooking, ready] }
+
+    # ----- кабинет ресторана -----
+    OwnerRestaurant:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        owner_id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        address: { type: string }
+        phone: { type: string, nullable: true }
+        is_open: { type: boolean }
+        photo_url: { $ref: '#/components/schemas/PhotoUrl' }
+        created_at: { type: string, format: date-time }
+
+    RestaurantCreate:
+      type: object
+      required: [name, address]
+      properties:
+        name: { type: string, minLength: 2, example: Casa Pasta }
+        description: { type: string, minLength: 5, maxLength: 100 }
+        address: { type: string, minLength: 5 }
+        phone: { type: string, description: 'Формат E.164', example: '+79991234567' }
+        is_open: { type: boolean, default: false }
+
+    RestaurantPatch:
+      type: object
+      description: Только изменённые поля; `description` и `phone` можно очистить через `null`
+      properties:
+        name: { type: string, minLength: 2 }
+        description: { type: string, nullable: true, minLength: 5, maxLength: 100 }
+        address: { type: string, minLength: 5 }
+        phone: { type: string, nullable: true }
+        is_open: { type: boolean }
+
+    Category:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        restaurant_id: { type: string, format: uuid }
+        name: { type: string }
+        sort_order: { type: string, description: 'Число строкой, например "1"', example: '1' }
+
+    CategoryCreate:
+      type: object
+      required: [name, sort_order]
+      properties:
+        name: { type: string, minLength: 3, maxLength: 35, example: Пицца }
+        sort_order: { type: integer, minimum: 1, description: 'Порядок в меню, по возрастанию' }
+
+    Dish:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        restaurant_id: { type: string, format: uuid }
+        category_id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        price_kopecks: { $ref: '#/components/schemas/Money' }
+        cooking_time_minutes: { type: integer, nullable: true }
+        is_available: { type: boolean }
+        photo_url: { $ref: '#/components/schemas/PhotoUrl' }
+        created_at: { type: string, format: date-time }
+
+    DishCreate:
+      type: object
+      required: [category_id, name, price_kopecks]
+      properties:
+        category_id: { type: string, format: uuid, description: Категория этого же ресторана }
+        name: { type: string, minLength: 2, maxLength: 50 }
+        description: { type: string, minLength: 5, maxLength: 200 }
+        price_kopecks: { type: integer, format: int64, minimum: 1 }
+        cooking_time_minutes: { type: integer, minimum: 1 }
+        is_available: { type: boolean, default: false }
+
+    DishPatch:
+      type: object
+      description: Только изменённые поля; `description` и `cooking_time_minutes` можно очистить через `null`
+      properties:
+        category_id: { type: string, format: uuid }
+        name: { type: string, minLength: 2, maxLength: 50 }
+        description: { type: string, nullable: true }
+        price_kopecks: { type: integer, format: int64, minimum: 1 }
+        cooking_time_minutes: { type: integer, nullable: true, minimum: 1 }
+        is_available: { type: boolean }
+
+    # ----- курьер -----
+    CourierStatus:
+      type: object
+      properties:
+        status: { type: string, enum: [offline, free, busy] }
+        transport_type: { type: string, example: foot }
+
+    CourierStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [offline, free] }
+
+    DeliveryStatus:
+      type: string
+      enum: [offered, accepted, refused, picked_up, delivered]
+
+    Delivery:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/DeliveryStatus' }
+        offered_at: { type: string, format: date-time }
+        responded_at: { type: string, format: date-time, nullable: true }
+        delivered_at: { type: string, format: date-time, nullable: true }
+        order_id: { type: string, format: uuid }
+        order_status: { $ref: '#/components/schemas/OrderStatus' }
+        restaurant_name: { type: string }
+        restaurant_address: { type: string }
+        delivery_address: { type: string }
+        comment: { type: string, nullable: true }
+        customer_name: { type: string, description: Нет у предложений (`offered`) }
+        customer_phone: { type: string, nullable: true, description: Нет у предложений (`offered`) }
+        total_kopecks: { $ref: '#/components/schemas/Money' }
+        payout_kopecks:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: Оплата курьеру — 150 ₽ + 10 % от суммы заказа, округление вниз до рубля
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              dish_name: { type: string }
+              quantity: { type: integer }
+
+    DeliveryStatusUpdate:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [picked_up, delivered] }
+
+    CourierRating:
+      type: object
+      properties:
+        rating: { type: number, format: double, nullable: true, description: '`null`, пока нет ни одной оценки', example: 4.9 }
+        count: { type: integer, description: Сколько оценок }
+
+    # ----- уведомления -----
+    Notification:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        order_id: { type: string, format: uuid, nullable: true }
+        type: { type: string, example: order_cooking, description: 'order_new, order_accepted, order_cooking, order_ready, order_delivering, order_delivered, order_rejected, order_cancelled' }
+        body: { type: string, example: 'Ваш заказ PD-C42108 начали готовить, ищем курьера' }
+        is_read: { type: boolean }
+        created_at: { type: string, format: date-time }
