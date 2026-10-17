@@ -1063,7 +1063,7 @@ components:
         email: { type: string, format: email, example: anna@mail.ru }
         password: { type: string, minLength: 6, example: secret12 }
         name: { type: string, minLength: 2, example: Анна }
-        phone: { type: string, description: 'Формат E.164, начинается с +', example: '+79991234567' }
+        phone: { type: string, description: 'Необязательно. Формат E.164, начинается с +, не короче 12 символов', example: '+79991234567' }
         role: { $ref: '#/components/schemas/Role' }
 
     LoginRequest:
@@ -1101,7 +1101,7 @@ components:
       properties:
         email: { type: string, format: email }
         name: { type: string, minLength: 2 }
-        phone: { type: string, nullable: true, example: '+79991234567' }
+        phone: { type: string, nullable: true, description: '`null` или пустая строка удаляют телефон', example: '+79991234567' }
 
     # ----- адреса -----
     Address:
@@ -1130,13 +1130,13 @@ components:
 
     AddressPatch:
       type: object
-      description: Только изменённые поля, `null` не допускается
+      description: 'Только изменённые поля, `null` не допускается. Пустая строка в `apartment` и `comment` очищает поле'
       properties:
         city: { type: string, minLength: 3 }
-        street: { type: string }
-        house: { type: string }
-        apartment: { type: string }
-        comment: { type: string, maxLength: 50 }
+        street: { type: string, minLength: 3 }
+        house: { type: string, pattern: '^[0-9]+$', description: Только цифры }
+        apartment: { type: string, pattern: '^[0-9]*$', description: Только цифры }
+        comment: { type: string, minLength: 5, maxLength: 100 }
         is_default: { type: boolean }
 
     # ----- каталог -----
@@ -1335,7 +1335,7 @@ components:
         id: { type: string, format: uuid }
         restaurant_id: { type: string, format: uuid }
         name: { type: string }
-        sort_order: { type: string, description: 'Число строкой, например "1"', example: '1' }
+        sort_order: { type: integer, nullable: true, example: 1 }
 
     CategoryCreate:
       type: object
