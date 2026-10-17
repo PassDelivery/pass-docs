@@ -35,6 +35,7 @@ erDiagram
         text name
         text phone
         text role "customer, restaurant_owner, courier, admin"
+        text avatar_url "nullable, фото профиля"
         timestamptz created_at
     }
  
@@ -66,6 +67,7 @@ erDiagram
         text address
         text phone
         boolean is_open
+        text photo_url "nullable"
         timestamptz created_at
     }
  
@@ -85,6 +87,7 @@ erDiagram
         bigint price_kopecks
         int cooking_time_minutes
         boolean is_available "вместо физического удаления"
+        text photo_url "nullable"
         timestamptz created_at
     }
  
@@ -146,7 +149,8 @@ erDiagram
         uuid order_id FK "UNIQUE, один отзыв на заказ"
         uuid user_id FK
         uuid restaurant_id FK
-        int rating "1 до 5"
+        int rating "1 до 5, оценка ресторана"
+        int courier_rating "nullable, 1 до 5, оценка курьера"
         text body
         timestamptz created_at
     }
@@ -161,3 +165,16 @@ erDiagram
         timestamptz created_at
     }
 ```
+
+## Миграции
+
+Схема создаётся миграциями из `pass-backend/migrations` (`make migrate-up`):
+
+| Миграция | Что делает |
+|---|---|
+| `000001_init` | Все 14 таблиц и связи |
+| `000002_courier_rating` | `reviews.courier_rating` — оценка курьера в отзыве |
+| `000003_photos` | `restaurants.photo_url`, `dishes.photo_url` — фото ресторанов и блюд |
+| `000004_avatars` | `users.avatar_url` — фото профиля |
+
+Сами файлы фото хранятся не в базе, а на диске сервера (`out/uploads`), в базе — только путь к файлу.
