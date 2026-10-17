@@ -2,22 +2,24 @@
 
 Централизованная документация командного проекта PassDelivery — сервиса доставки еды, разрабатываемого в рамках курса по ООП (МГТУ «СТАНКИН», ИСиТ).
 
+Приложение работает по адресу **[passdelivery.ru](https://passdelivery.ru)**.
 
 ## Содержание
 
 | Документ | Описание |
 |---|---|
 | [`requirements.md`](./requirements.md) | Анализ задачи: цель проекта, роли пользователей, use-case'ы, бизнес-правила |
-| [`erd.md`](./erd.md) | ERD-диаграмма базы данных |
-| [`openapi-core.yaml`](./openapi.yaml) | OpenAPI-контракт REST API |
-| [Roadmap и график работ](./ROADMAP.md) | План по этапам на все 3 лабораторные |
+| [`ERD.md`](./ERD.md) | ERD-диаграмма базы данных и список миграций |
+| [`openapi.yaml`](./openapi.yaml) | OpenAPI-контракт REST API (48 операций) |
+| [`design.md`](./design.md) | Ссылка на макет в Figma и реализованные экраны |
+| [`ROADMAP.md`](./ROADMAP.md) | Roadmap и график работ, фактический ход разработки |
 
 ## О проекте
 
 PassDelivery — сервис заказа и доставки еды из ресторанов, по аналогии с Яндекс.Едой. В системе четыре роли:
 
 - customer — заказывает еду
-- restaurant_owner — управляет рестораном и меню
+- restaurant_owner — управляет ресторанами и меню, готовит заказы
 - courier — доставляет заказы
 - admin — модерация и администрирование
 
@@ -25,9 +27,16 @@ PassDelivery — сервис заказа и доставки еды из ре�
 
 ## Архитектура
 
-- Backend: Go, трёхслойная архитектура (handler → service → repository), PostgreSQL, Docker Compose, JWT-аутентификация
-- Frontend: см. репозиторий pass-frontend
-- Контракт между бекендом и фронтендом: [OpenAPI-спека](./openapi.yaml), также доступна в SwaggerHub
+- **Backend:** Go, трёхслойная архитектура (handler → service → repository), PostgreSQL, миграции golang-migrate, JWT-аутентификация, bcrypt. Фото хранятся на диске сервера, в базе — путь к файлу.
+- **Frontend:** HTML, CSS и JavaScript без сборки и фреймворков (ES-модули), сверстан по макету из Figma.
+- **Контракт между бекендом и фронтендом:** [OpenAPI-спека](./openapi.yaml), также доступна в SwaggerHub.
+- **Инфраструктура:** VPS, Docker Compose (бекенд, PostgreSQL, миграции), nginx отдаёт фронтенд и проксирует `/api/` на бекенд, домен passdelivery.ru.
+
+```
+браузер ──► passdelivery.ru (nginx)
+              ├─ /         → файлы фронтенда
+              └─ /api/v1/  → бекенд на Go (Docker) ──► PostgreSQL (Docker)
+```
 
 ## Репозитории организации
 
@@ -49,4 +58,4 @@ PassDelivery — сервис заказа и доставки еды из ре�
 
 ## Git-флоу
 
-Разработка ведётся через feature-ветки (`feature/<название>`) и Pull Request в main. Прямые коммиты в main запрещены (branch protection).
+Разработка ведётся через feature-ветки (`feature/<название>`, исправления — `fix/<название>`) и Pull Request в main. Прямые коммиты в main запрещены (branch protection).
